@@ -1,8 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import ArbitrageScanner from '../components/arbitrage/ArbitrageScanner';
 import FilterPanel from '../components/arbitrage/FilterPanel';
 import ArbitrageTable from '../components/arbitrage/ArbitrageTable';
 import StatsPanel from '../components/arbitrage/StatsPanel';
+import HistoryPanel from '../components/arbitrage/HistoryPanel';
+import NotificationSettings from '../components/arbitrage/NotificationSettings';
+import NotificationSound from '../components/arbitrage/NotificationSound';
+import { fetchArbitrageOpportunities } from '../lib/api';
 
 export interface Bookmaker {
   id: string;
@@ -46,81 +50,54 @@ export default function Index() {
   });
 
   const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([]);
+  const [history, setHistory] = useState<ArbitrageOpportunity[]>([]);
   const [isScanning, setIsScanning] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [minProfitForNotification, setMinProfitForNotification] = useState(3);
+  const [playSound, setPlaySound] = useState(false);
+
+  const fetchOpportunities = useCallback(async () => {
+    const data = await fetchArbitrageOpportunities();
+    if (data.length > 0) {
+      const enabledBookmakerNames = bookmakers.filter(b => b.enabled).map(b => b.name);
+      
+      const filtered = data.filter((opp: ArbitrageOpportunity) => {
+        const hasEnabledBookmakers = opp.bets.every(bet => 
+          enabledBookmakerNames.includes(bet.bookmaker)
+        );
+        const meetsProfit = opp.profit >= filters.minProfit && opp.profit <= filters.maxProfit;
+        const meetsType = filters.eventType === 'all' || opp.type === filters.eventType;
+        return hasEnabledBookmakers && meetsProfit && meetsType;
+      });
+
+      const newOpps = filtered.map((opp: any) => ({
+        ...opp,
+        timestamp: new Date(opp.timestamp)
+      }));
+
+      if (newOpps.length > 0) {
+        setOpportunities(prev => [...newOpps, ...prev].slice(0, 50));
+        setHistory(prev => [...newOpps, ...prev]);
+
+        const hasHighProfit = newOpps.some((opp: ArbitrageOpportunity) => 
+          opp.profit >= minProfitForNotification
+        );
+        if (soundEnabled && hasHighProfit) {
+          setPlaySound(true);
+        }
+      }
+    }
+  }, [bookmakers, filters, soundEnabled, minProfitForNotification]);
 
   useEffect(() => {
     if (isScanning) {
-      const interval = setInterval(() => {
-        generateMockOpportunities();
-      }, 3000);
-
+      fetchOpportunities();
+      const interval = setInterval(fetchOpportunities, 3000);
       return () => clearInterval(interval);
     }
-  }, [isScanning, filters, bookmakers]);
+  }, [isScanning, fetchOpportunities]);
 
-  const generateMockOpportunities = () => {
-    const sports = ['Футбол', 'Теннис', 'Баскетбол', 'Хоккей', 'Волейбол'];
-    const leagues = ['Премьер-лига', 'Лига чемпионов', 'ATP', 'NBA', 'КХЛ'];
-    const teams = [
-      ['Спартак', 'Зенит'],
-      ['Реал', 'Барселона'],
-      ['Федерер', 'Надаль'],
-      ['Лейкерс', 'Селтикс'],
-      ['ЦСКА', 'СКА'],
-    ];
 
-    const enabledBookmakers = bookmakers.filter(b => b.enabled);
-    if (enabledBookmakers.length < 2) return;
-
-    const newOpportunities: ArbitrageOpportunity[] = [];
-
-    for (let i = 0; i < Math.floor(Math.random() * 3) + 1; i++) {
-      const sportIndex = Math.floor(Math.random() * sports.length);
-      const profit = parseFloat((Math.random() * (filters.maxProfit - filters.minProfit) + filters.minProfit).toFixed(2));
-      const type = Math.random() > 0.6 ? 'live' : 'prematch';
-
-      if (filters.eventType !== 'all' && filters.eventType !== type) continue;
-
-      const bk1 = enabledBookmakers[Math.floor(Math.random() * enabledBookmakers.length)];
-      let bk2 = enabledBookmakers[Math.floor(Math.random() * enabledBookmakers.length)];
-      while (bk2.id === bk1.id && enabledBookmakers.length > 1) {
-        bk2 = enabledBookmakers[Math.floor(Math.random() * enabledBookmakers.length)];
-      }
-
-      const odds1 = parseFloat((1.5 + Math.random() * 2).toFixed(2));
-      const odds2 = parseFloat((1.5 + Math.random() * 2).toFixed(2));
-
-      const totalStake = 10000;
-      const stake1 = parseFloat((totalStake / (1 + odds1 / odds2)).toFixed(2));
-      const stake2 = parseFloat((totalStake - stake1).toFixed(2));
-
-      newOpportunities.push({
-        id: `arb-${Date.now()}-${i}`,
-        sport: sports[sportIndex],
-        league: leagues[sportIndex],
-        event: `${teams[sportIndex][0]} - ${teams[sportIndex][1]}`,
-        type,
-        profit,
-        timestamp: new Date(),
-        bets: [
-          {
-            bookmaker: bk1.name,
-            outcome: 'П1',
-            odds: odds1,
-            stake: stake1,
-          },
-          {
-            bookmaker: bk2.name,
-            outcome: 'П2',
-            odds: odds2,
-            stake: stake2,
-          },
-        ],
-      });
-    }
-
-    setOpportunities(prev => [...newOpportunities, ...prev].slice(0, 50));
-  };
 
   const toggleBookmaker = (id: string) => {
     setBookmakers(prev =>
@@ -166,7 +143,18 @@ export default function Index() {
           onFiltersChange={setFilters}
         />
 
+        <NotificationSettings
+          soundEnabled={soundEnabled}
+          minProfitForNotification={minProfitForNotification}
+          onSoundToggle={setSoundEnabled}
+          onMinProfitChange={setMinProfitForNotification}
+        />
+
+        <HistoryPanel history={history} onClear={() => setHistory([])} />
+
         <ArbitrageTable opportunities={filteredOpportunities} />
+
+        <NotificationSound play={playSound} onEnded={() => setPlaySound(false)} />
       </div>
     </div>
   );
