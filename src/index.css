@@ -99,3 +99,16 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  .pixel-text {
+    font-family: "Courier New", monospace;
+    image-rendering: pixelated;
+    text-rendering: optimizeSpeed;
+    letter-spacing: 0.05em;
+  }
+
+  .pixel-borders {
+    image-rendering: pixelated;
+  }
+}
