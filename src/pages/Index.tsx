@@ -1,257 +1,172 @@
-import { useState, useEffect, useCallback } from 'react';
-import GameCanvas from '../components/game/GameCanvas';
-import GameUI from '../components/game/GameUI';
-import StartScreen from '../components/game/StartScreen';
-import GameOver from '../components/game/GameOver';
+import { useState, useEffect } from 'react';
+import ArbitrageScanner from '../components/arbitrage/ArbitrageScanner';
+import FilterPanel from '../components/arbitrage/FilterPanel';
+import ArbitrageTable from '../components/arbitrage/ArbitrageTable';
+import StatsPanel from '../components/arbitrage/StatsPanel';
 
-export type GameState = 'start' | 'playing' | 'paused' | 'gameover' | 'victory';
-
-export interface Player {
-  x: number;
-  y: number;
-  health: number;
-  isAttacking: boolean;
-  direction: 'left' | 'right';
-  velocityY: number;
-  isJumping: boolean;
+export interface Bookmaker {
+  id: string;
+  name: string;
+  enabled: boolean;
 }
 
-export interface Enemy {
-  id: number;
-  type: 'mole' | 'rabbit' | 'boss';
-  x: number;
-  y: number;
-  health: number;
-  direction: 'left' | 'right';
-  velocityX: number;
+export interface ArbitrageOpportunity {
+  id: string;
+  sport: string;
+  league: string;
+  event: string;
+  type: 'live' | 'prematch';
+  profit: number;
+  timestamp: Date;
+  bets: {
+    bookmaker: string;
+    outcome: string;
+    odds: number;
+    stake: number;
+  }[];
 }
 
 export default function Index() {
-  const [gameState, setGameState] = useState<GameState>('start');
-  const [score, setScore] = useState(0);
-  const [level, setLevel] = useState(1);
-  const [player, setPlayer] = useState<Player>({
-    x: 100,
-    y: 300,
-    health: 100,
-    isAttacking: false,
-    direction: 'right',
-    velocityY: 0,
-    isJumping: false,
+  const [bookmakers, setBookmakers] = useState<Bookmaker[]>([
+    { id: 'bet365', name: 'Bet365', enabled: true },
+    { id: 'fonbet', name: 'Фонбет', enabled: true },
+    { id: 'winline', name: 'Winline', enabled: true },
+    { id: '1xbet', name: '1xBet', enabled: true },
+    { id: 'marathon', name: 'Marathon', enabled: true },
+    { id: 'baltbet', name: 'BaltBet', enabled: true },
+    { id: 'liga', name: 'Лига Ставок', enabled: true },
+    { id: 'parimatch', name: 'Parimatch', enabled: true },
+  ]);
+
+  const [filters, setFilters] = useState({
+    minProfit: 2,
+    maxProfit: 20,
+    eventType: 'all' as 'all' | 'live' | 'prematch',
+    sports: [] as string[],
   });
-  const [enemies, setEnemies] = useState<Enemy[]>([]);
-  const [keys, setKeys] = useState<Set<string>>(new Set());
 
-  const startGame = useCallback(() => {
-    setGameState('playing');
-    setScore(0);
-    setLevel(1);
-    setPlayer({
-      x: 100,
-      y: 300,
-      health: 100,
-      isAttacking: false,
-      direction: 'right',
-      velocityY: 0,
-      isJumping: false,
-    });
-    spawnEnemies(1);
-  }, []);
-
-  const spawnEnemies = useCallback((currentLevel: number) => {
-    const newEnemies: Enemy[] = [];
-    
-    if (currentLevel < 3) {
-      const enemyCount = currentLevel * 3;
-      for (let i = 0; i < enemyCount; i++) {
-        newEnemies.push({
-          id: Date.now() + i,
-          type: Math.random() > 0.5 ? 'mole' : 'rabbit',
-          x: 400 + i * 150,
-          y: 300,
-          health: 30,
-          direction: 'left',
-          velocityX: -1 - Math.random(),
-        });
-      }
-    } else {
-      newEnemies.push({
-        id: Date.now(),
-        type: 'boss',
-        x: 600,
-        y: 280,
-        health: 200,
-        direction: 'left',
-        velocityX: -0.5,
-      });
-    }
-    
-    setEnemies(newEnemies);
-  }, []);
-
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    setKeys(prev => new Set(prev).add(e.key));
-    
-    if (e.key === ' ' && gameState === 'playing') {
-      e.preventDefault();
-      setPlayer(prev => ({ ...prev, isAttacking: true }));
-      setTimeout(() => {
-        setPlayer(prev => ({ ...prev, isAttacking: false }));
-      }, 200);
-    }
-  }, [gameState]);
-
-  const handleKeyUp = useCallback((e: KeyboardEvent) => {
-    setKeys(prev => {
-      const newKeys = new Set(prev);
-      newKeys.delete(e.key);
-      return newKeys;
-    });
-  }, []);
+  const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([]);
+  const [isScanning, setIsScanning] = useState(false);
 
   useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, [handleKeyDown, handleKeyUp]);
+    if (isScanning) {
+      const interval = setInterval(() => {
+        generateMockOpportunities();
+      }, 3000);
 
-  useEffect(() => {
-    if (gameState !== 'playing') return;
+      return () => clearInterval(interval);
+    }
+  }, [isScanning, filters, bookmakers]);
 
-    const gameLoop = setInterval(() => {
-      setPlayer(prev => {
-        let newX = prev.x;
-        let newY = prev.y;
-        let newVelocityY = prev.velocityY;
-        let newIsJumping = prev.isJumping;
-        let newDirection = prev.direction;
+  const generateMockOpportunities = () => {
+    const sports = ['Футбол', 'Теннис', 'Баскетбол', 'Хоккей', 'Волейбол'];
+    const leagues = ['Премьер-лига', 'Лига чемпионов', 'ATP', 'NBA', 'КХЛ'];
+    const teams = [
+      ['Спартак', 'Зенит'],
+      ['Реал', 'Барселона'],
+      ['Федерер', 'Надаль'],
+      ['Лейкерс', 'Селтикс'],
+      ['ЦСКА', 'СКА'],
+    ];
 
-        if (keys.has('ArrowLeft') || keys.has('a')) {
-          newX = Math.max(0, prev.x - 3);
-          newDirection = 'left';
-        }
-        if (keys.has('ArrowRight') || keys.has('d')) {
-          newX = Math.min(750, prev.x + 3);
-          newDirection = 'right';
-        }
+    const enabledBookmakers = bookmakers.filter(b => b.enabled);
+    if (enabledBookmakers.length < 2) return;
 
-        if ((keys.has('ArrowUp') || keys.has('w') || keys.has(' ')) && !prev.isJumping) {
-          newVelocityY = -12;
-          newIsJumping = true;
-        }
+    const newOpportunities: ArbitrageOpportunity[] = [];
 
-        newVelocityY += 0.6;
-        newY += newVelocityY;
+    for (let i = 0; i < Math.floor(Math.random() * 3) + 1; i++) {
+      const sportIndex = Math.floor(Math.random() * sports.length);
+      const profit = parseFloat((Math.random() * (filters.maxProfit - filters.minProfit) + filters.minProfit).toFixed(2));
+      const type = Math.random() > 0.6 ? 'live' : 'prematch';
 
-        if (newY >= 300) {
-          newY = 300;
-          newVelocityY = 0;
-          newIsJumping = false;
-        }
+      if (filters.eventType !== 'all' && filters.eventType !== type) continue;
 
-        return {
-          ...prev,
-          x: newX,
-          y: newY,
-          velocityY: newVelocityY,
-          isJumping: newIsJumping,
-          direction: newDirection,
-        };
-      });
-
-      setEnemies(prev => {
-        return prev.map(enemy => {
-          let newX = enemy.x + enemy.velocityX;
-          let newDirection = enemy.direction;
-
-          if (newX <= 0 || newX >= 750) {
-            newDirection = newDirection === 'left' ? 'right' : 'left';
-            enemy.velocityX *= -1;
-            newX = Math.max(0, Math.min(750, newX));
-          }
-
-          return { ...enemy, x: newX, direction: newDirection };
-        }).filter(enemy => enemy.health > 0);
-      });
-
-      if (player.isAttacking) {
-        setEnemies(prev => {
-          const hitEnemies = prev.map(enemy => {
-            const distance = Math.abs(player.x - enemy.x);
-            const verticalDistance = Math.abs(player.y - enemy.y);
-            
-            if (distance < 60 && verticalDistance < 50) {
-              const newHealth = enemy.health - 10;
-              if (newHealth <= 0) {
-                setScore(s => s + (enemy.type === 'boss' ? 500 : 100));
-              }
-              return { ...enemy, health: newHealth };
-            }
-            return enemy;
-          });
-          return hitEnemies;
-        });
+      const bk1 = enabledBookmakers[Math.floor(Math.random() * enabledBookmakers.length)];
+      let bk2 = enabledBookmakers[Math.floor(Math.random() * enabledBookmakers.length)];
+      while (bk2.id === bk1.id && enabledBookmakers.length > 1) {
+        bk2 = enabledBookmakers[Math.floor(Math.random() * enabledBookmakers.length)];
       }
 
-      setEnemies(prev => {
-        prev.forEach(enemy => {
-          const distance = Math.abs(player.x - enemy.x);
-          const verticalDistance = Math.abs(player.y - enemy.y);
-          
-          if (distance < 40 && verticalDistance < 40 && !player.isAttacking) {
-            setPlayer(p => {
-              const newHealth = Math.max(0, p.health - 0.5);
-              if (newHealth <= 0) {
-                setGameState('gameover');
-              }
-              return { ...p, health: newHealth };
-            });
-          }
-        });
-        return prev;
+      const odds1 = parseFloat((1.5 + Math.random() * 2).toFixed(2));
+      const odds2 = parseFloat((1.5 + Math.random() * 2).toFixed(2));
+
+      const totalStake = 10000;
+      const stake1 = parseFloat((totalStake / (1 + odds1 / odds2)).toFixed(2));
+      const stake2 = parseFloat((totalStake - stake1).toFixed(2));
+
+      newOpportunities.push({
+        id: `arb-${Date.now()}-${i}`,
+        sport: sports[sportIndex],
+        league: leagues[sportIndex],
+        event: `${teams[sportIndex][0]} - ${teams[sportIndex][1]}`,
+        type,
+        profit,
+        timestamp: new Date(),
+        bets: [
+          {
+            bookmaker: bk1.name,
+            outcome: 'П1',
+            odds: odds1,
+            stake: stake1,
+          },
+          {
+            bookmaker: bk2.name,
+            outcome: 'П2',
+            odds: odds2,
+            stake: stake2,
+          },
+        ],
       });
+    }
 
-      if (enemies.length === 0 && gameState === 'playing') {
-        if (level >= 3) {
-          setGameState('victory');
-        } else {
-          const newLevel = level + 1;
-          setLevel(newLevel);
-          setScore(s => s + 500);
-          spawnEnemies(newLevel);
-        }
-      }
-    }, 1000 / 60);
+    setOpportunities(prev => [...newOpportunities, ...prev].slice(0, 50));
+  };
 
-    return () => clearInterval(gameLoop);
-  }, [gameState, keys, player.isAttacking, player.x, player.y, enemies.length, level, spawnEnemies]);
+  const toggleBookmaker = (id: string) => {
+    setBookmakers(prev =>
+      prev.map(bk => (bk.id === id ? { ...bk, enabled: !bk.enabled } : bk))
+    );
+  };
+
+  const filteredOpportunities = opportunities.filter(opp => {
+    if (filters.eventType !== 'all' && opp.type !== filters.eventType) return false;
+    if (filters.sports.length > 0 && !filters.sports.includes(opp.sport)) return false;
+    return true;
+  });
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#0f0f1e] to-[#1a1a2e] flex items-center justify-center p-4">
-      <div className="relative">
-        {gameState === 'start' && <StartScreen onStart={startGame} />}
-        {gameState === 'gameover' && (
-          <GameOver score={score} onRestart={startGame} type="gameover" />
-        )}
-        {gameState === 'victory' && (
-          <GameOver score={score} onRestart={startGame} type="victory" />
-        )}
-        {(gameState === 'playing' || gameState === 'paused') && (
-          <>
-            <GameUI
-              health={player.health}
-              score={score}
-              level={level}
-              gameState={gameState}
-              onPause={() => setGameState('paused')}
-              onResume={() => setGameState('playing')}
-            />
-            <GameCanvas player={player} enemies={enemies} />
-          </>
-        )}
+    <div className="min-h-screen bg-gradient-to-br from-[#0a0a0f] via-[#1a1a2e] to-[#16213e] text-white">
+      <div className="container mx-auto p-6 space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-[#00ff00] to-[#f39c12] bg-clip-text text-transparent">
+              ArbitrageScanner Pro
+            </h1>
+            <p className="text-gray-400 mt-1">Сканер вилок в букмекерских конторах</p>
+          </div>
+          <ArbitrageScanner isScanning={isScanning} onToggle={() => setIsScanning(!isScanning)} />
+        </div>
+
+        <StatsPanel
+          totalOpportunities={filteredOpportunities.length}
+          avgProfit={
+            filteredOpportunities.length > 0
+              ? filteredOpportunities.reduce((sum, opp) => sum + opp.profit, 0) /
+                filteredOpportunities.length
+              : 0
+          }
+          liveCount={filteredOpportunities.filter(o => o.type === 'live').length}
+          prematchCount={filteredOpportunities.filter(o => o.type === 'prematch').length}
+        />
+
+        <FilterPanel
+          bookmakers={bookmakers}
+          filters={filters}
+          onToggleBookmaker={toggleBookmaker}
+          onFiltersChange={setFilters}
+        />
+
+        <ArbitrageTable opportunities={filteredOpportunities} />
       </div>
     </div>
   );
